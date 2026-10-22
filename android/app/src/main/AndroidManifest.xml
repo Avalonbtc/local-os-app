@@ -1,12 +1,34 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- Talks to the farm controller. -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Offline and recovery alerts (asked for at runtime on Android 13+). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- Background monitor: a foreground service that keeps checking for alerts. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
     <!-- Controllers on a LAN or VPN often serve plain http://. -->
     <application
         android:label="RigDeck"
         android:usesCleartextTraffic="true"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
+        <!-- Icon of the persistent monitor notification. -->
+        <meta-data
+            android:name="com.rigdeck.monitor_icon"
+            android:resource="@drawable/ic_stat_rigdeck" />
+        <!-- Warning: the service name is fixed by flutter_foreground_task. specialUse: dataSync
+             is capped at 6 h a day on Android 15+, and monitoring has to run all day. -->
+        <service
+            android:name="com.pravera.flutter_foreground_task.service.ForegroundService"
+            android:foregroundServiceType="specialUse"
+            android:exported="false">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Keeps checking the user's own mining farm controller for machine offline and recovery alerts and shows them as notifications." />
+        </service>
         <activity
             android:name=".MainActivity"
             android:exported="true"

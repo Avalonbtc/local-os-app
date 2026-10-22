@@ -58,11 +58,34 @@ class Credentials {
   }
 }
 
+/// The controller address as typed, made usable: Chinese keyboards in full-width mode turn
+/// `http://10.0.0.1:8080` into `ＨＴＴＰ：／／10。0。0。1：8080`, which no URL parser accepts.
 String normalizeServer(String input) {
-  var s = input.trim();
-  if (!s.startsWith('http://') && !s.startsWith('https://')) s = 'https://$s';
+  final half = StringBuffer();
+  for (final c in input.trim().runes) {
+    if (c >= 0xFF01 && c <= 0xFF5E) {
+      half.writeCharCode(c - 0xFEE0); // full-width ASCII block
+    } else if (c == 0x3002) {
+      half.write('.'); // ideographic full stop 。
+    } else if (c == 0x3000) {
+      half.write(' ');
+    } else {
+      half.writeCharCode(c);
+    }
+  }
+  var s = half.toString().replaceAll(' ', '');
+  final scheme = RegExp(r'^[a-zA-Z]+://').firstMatch(s);
+  if (scheme == null) {
+    s = 'https://$s';
+  } else {
+    s = s.substring(0, scheme.end).toLowerCase() + s.substring(scheme.end);
+  }
   while (s.endsWith('/')) {
     s = s.substring(0, s.length - 1);
+  }
+  final uri = Uri.tryParse(s);
+  if (uri == null || !(uri.scheme == 'http' || uri.scheme == 'https') || uri.host.isEmpty) {
+    throw ApiException(null, '主控地址格式不对，例如 http://192.168.1.10:8080');
   }
   return s;
 }

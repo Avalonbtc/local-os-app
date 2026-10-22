@@ -132,6 +132,12 @@ class AlertsStore extends ChangeNotifier {
     _timer = null;
   }
 
+  /// Announce only alerts newer than [id] (instead of treating everything on the first load as
+  /// history). Must be called before the first refresh.
+  void announceAfter(int id) {
+    if (_seen < 0) _seen = id;
+  }
+
   void markRead() {
     if (unread == 0) return;
     unread = 0;

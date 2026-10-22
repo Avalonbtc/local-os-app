@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../api/client.dart';
 import '../api/models.dart';
+import '../data/monitor.dart';
+import '../data/notifier.dart';
 import '../data/session.dart';
 import '../data/stores.dart';
 import '../theme.dart';
@@ -26,38 +28,82 @@ class _ShellState extends State<Shell> {
   late final FleetStore _fleet = FleetStore(widget.backend);
   late final AlertsStore _alerts = AlertsStore(widget.backend);
   late final AppLifecycleListener _lifecycle;
+  final _notifier = SystemNotifier.instance;
+  bool _foreground = true;
   int _tab = 0;
 
   @override
   void initState() {
     super.initState();
     _fleet.start();
-    _alerts
-      ..onNew = _announce
-      ..start();
-    // No polling (and no battery or radio use) while the app is in the background.
+    _alerts.onNew = _announce;
+    // Share the background monitor's "seen" mark, so nothing falls between the two.
+    BackgroundMonitor.lastSeen().then((seen) {
+      if (!mounted) return;
+      if (seen != null) _alerts.announceAfter(seen);
+      _alerts.start();
+    });
+    // Fleet polling stops in the background; alert polling continues (one small request every
+    // 15 s) for as long as the system lets the app run, so alerts reach the notification shade.
     _lifecycle = AppLifecycleListener(
       onResume: () {
+        _foreground = true;
         _fleet.start();
-        _alerts.start();
+        _alerts.refresh();
       },
       onHide: () {
+        _foreground = false;
         _fleet.stop();
-        _alerts.stop();
       },
     );
+    _notifier.tapped.addListener(_openTapped);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _openTapped();
+      // Asked once, after sign-in, when the user can see why; the monitor's own notification
+      // needs the same permission.
+      _notifier.requestPermission().then((_) => BackgroundMonitor.start(demo: widget.session.demo));
+    });
   }
 
   @override
   void dispose() {
+    _notifier.tapped.removeListener(_openTapped);
     _lifecycle.dispose();
     _fleet.dispose();
     _alerts.dispose();
     super.dispose();
   }
 
+  /// A tapped notification opens its machine.
+  void _openTapped() {
+    final id = _notifier.tapped.value;
+    if (id == null || !mounted) return;
+    _notifier.tapped.value = null;
+    _alerts.markRead();
+    // This context sits above the shell's AppScope, so the page gets the services directly.
+    Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => AppScope(
+        session: widget.session,
+        backend: widget.backend,
+        fleet: _fleet,
+        alerts: _alerts,
+        child: MachineDetailPage(machineId: id),
+      ),
+    ));
+  }
+
   void _announce(List<StatusAlert> fresh) {
     if (!mounted) return;
+    if (!_foreground) {
+      // With the background monitor running it posts these itself (the demo farm only exists in
+      // this isolate, so demo alerts always come from here).
+      if (BackgroundMonitor.running && !widget.session.demo) return;
+      // The newest few: a switch failure can take dozens of rigs down at once.
+      for (final a in fresh.take(3)) {
+        _notifier.show(a);
+      }
+      return;
+    }
     // The app-wide messenger: the notice shows over whichever page is open.
     final m = ScaffoldMessenger.of(context);
     final a = fresh.first;

@@ -157,5 +157,10 @@ void main() {
     expect(naturalCompare('rig-2', 'rig-10'), lessThan(0));
     expect(normalizeServer('192.168.1.10/'), 'https://192.168.1.10');
     expect(normalizeServer('http://h:8080'), 'http://h:8080');
+    // Full-width input from a Chinese keyboard, as typed on a real phone.
+    expect(normalizeServer('ＨＴＴＰ：／／127.0.0.1：8080'), 'http://127.0.0.1:8080');
+    expect(normalizeServer('192。168。1。10：8080／'), 'https://192.168.1.10:8080');
+    expect(() => normalizeServer('ftp://x'), throwsA(isA<ApiException>()));
+    expect(() => normalizeServer('http://'), throwsA(isA<ApiException>()));
   });
 }

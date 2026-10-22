@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'data/monitor.dart';
+import 'data/notifier.dart';
 import 'data/session.dart';
 import 'theme.dart';
 import 'ui/login_page.dart';
@@ -15,6 +17,8 @@ void main() {
     systemNavigationBarIconBrightness: Brightness.light,
   ));
   final session = SessionController()..restore();
+  SystemNotifier.instance.init();
+  BackgroundMonitor.init();
   runApp(RigDeckApp(session: session));
 }
 

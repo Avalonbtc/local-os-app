@@ -17,6 +17,23 @@ class DemoBackend extends Backend {
   final bool background;
   final _started = DateTime.now().millisecondsSinceEpoch;
   final _jobs = <Map<String, dynamic>>[];
+  final _simulated = <Map<String, dynamic>>[];
+
+  /// Demo only: raise a new alert, alternating rig-05 going offline and recovering, so the app's
+  /// in-app banner and system notifications can be tried without a farm.
+  void simulateAlert() {
+    final offline = _simulated.length.isEven;
+    final rig = name(4);
+    _simulated.add({
+      'id': 100 + _simulated.length,
+      'machine_id': id(4),
+      'machine_name': rig,
+      'kind': 'local',
+      'event': offline ? 'offline' : 'recovered',
+      'at': DateTime.now().toUtc().toIso8601String(),
+      'message': offline ? '$rig 已离线：2 分钟没有收到遥测数据（主动上报和 SSH 读取都没有结果）（模拟）' : '$rig 已恢复在线（离线约 1 分钟）（模拟）',
+    });
+  }
   Map<String, dynamic> _settings = {
     'electricity_price': 0.56,
     'alerts': {
@@ -174,6 +191,7 @@ class DemoBackend extends Backend {
   String _alerts(int now) {
     String at(int minutes) => DateTime.fromMillisecondsSinceEpoch(now - minutes * 60000).toUtc().toIso8601String();
     return jsonEncode([
+      ..._simulated.reversed,
       {'id': 6, 'machine_id': id(11), 'machine_name': name(11), 'kind': 'local', 'event': 'offline', 'at': at(3), 'message': '${name(11)} 已离线：5 分钟没有收到遥测数据（主动上报和 SSH 读取都没有结果）'},
       {'id': 5, 'machine_id': id(6), 'machine_name': name(6), 'kind': 'pool', 'event': 'offline', 'at': at(12), 'message': '${name(6)} 矿池离线：本机在运行，但矿池已 10 分钟没有看到算力（xmr：xmrig-proxy 上看不到 worker「rig07」）'},
       {'id': 4, 'machine_id': id(3), 'machine_name': name(3), 'kind': 'local', 'event': 'recovered', 'at': at(170), 'message': '${name(3)} 已恢复在线（离线约 7 分钟）'},

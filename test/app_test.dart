@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:rigdeck_app/data/demo_backend.dart';
+import 'package:rigdeck_app/data/notifier.dart';
 import 'package:rigdeck_app/data/session.dart';
 import 'package:rigdeck_app/data/stores.dart';
 import 'package:rigdeck_app/main.dart';
@@ -92,6 +93,33 @@ void main() {
       await tester.pump(const Duration(milliseconds: 100));
       await tester.pumpAndSettle();
     }
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('更多').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('退出演示'));
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('a tapped system notification opens its machine', (tester) async {
+    tester.view.physicalSize = const Size(390 * 3, 844 * 3);
+    tester.view.devicePixelRatio = 3;
+    addTearDown(tester.view.reset);
+    final session = SessionController();
+    await tester.runAsync(session.restore);
+    await tester.pumpWidget(RigDeckApp(session: session));
+    FleetStore.offThread = false;
+    session.startDemo(DemoBackend(latency: Duration.zero, background: false));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pump(const Duration(milliseconds: 100));
+
+    // What the plugin does when the user taps a notification for rig-05.
+    SystemNotifier.instance.tapped.value = DemoBackend.id(4);
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(AppBar, 'rig-05'), findsOneWidget);
+    expect(SystemNotifier.instance.tapped.value, isNull);
+
     await tester.pageBack();
     await tester.pumpAndSettle();
     await tester.tap(find.text('更多').last);

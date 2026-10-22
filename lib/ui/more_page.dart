@@ -1,9 +1,11 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 
 import '../api/client.dart';
 import '../api/models.dart';
+import '../data/monitor.dart';
 import '../theme.dart';
 import '../util/format.dart';
 import 'widgets.dart';
@@ -59,6 +61,7 @@ class MorePage extends StatelessWidget {
           group([
             item(Icons.tune_rounded, '矿场设定与离线通知', () => push(context, const FarmSettingsPage())),
             item(Icons.key_outlined, '令牌与审计记录', () => push(context, const TokensPage())),
+            if (BackgroundMonitor.supported) _MonitorTile(demo: session.demo),
           ]),
           const SectionLabel('账户'),
           group([
@@ -76,6 +79,68 @@ class MorePage extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+/// Android: keep checking for alerts in the background (foreground service + persistent
+/// notification), and let the user exempt the app from battery optimisation.
+class _MonitorTile extends StatefulWidget {
+  const _MonitorTile({required this.demo});
+  final bool demo;
+  @override
+  State<_MonitorTile> createState() => _MonitorTileState();
+}
+
+class _MonitorTileState extends State<_MonitorTile> {
+  bool? _on;
+  bool _exempt = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _read();
+  }
+
+  Future<void> _read() async {
+    final on = await BackgroundMonitor.enabled;
+    final exempt = await FlutterForegroundTask.isIgnoringBatteryOptimizations;
+    if (!mounted) return;
+    setState(() {
+      _on = on;
+      _exempt = exempt;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final on = _on;
+    return Column(children: [
+      SwitchListTile(
+        secondary: DecoratedBox(
+          decoration: BoxDecoration(color: const Color(0xFF262C33), borderRadius: BorderRadius.circular(8)),
+          child: const SizedBox.square(dimension: 32, child: Icon(Icons.notifications_active_outlined, size: 18, color: C.rate)),
+        ),
+        title: const Text('后台监控'),
+        subtitle: const Text('App 不在前台或被划掉时也每 30 秒检查离线通知，通知栏会常驻一条「后台监控中」', style: TextStyle(fontSize: 12, color: C.muted, height: 1.4)),
+        value: on ?? false,
+        onChanged: on == null
+            ? null
+            : (v) async {
+                setState(() => _on = v);
+                await BackgroundMonitor.setEnabled(v, demo: widget.demo);
+              },
+      ),
+      if ((on ?? false) && !_exempt)
+        ListTile(
+          contentPadding: const EdgeInsets.fromLTRB(72, 0, 16, 8),
+          title: const Text('允许忽略电池优化', style: TextStyle(fontSize: 14, color: C.accent)),
+          subtitle: const Text('部分手机会在省电时停掉后台服务；允许后更可靠', style: TextStyle(fontSize: 12, color: C.muted)),
+          onTap: () async {
+            await FlutterForegroundTask.requestIgnoreBatteryOptimization();
+            await _read();
+          },
+        ),
+    ]);
   }
 }
 

@@ -36,6 +36,8 @@ dependencies:
   cupertino_icons: ^1.0.8
   http: ^1.6.0
   flutter_secure_storage: ^11.2.0
+  flutter_local_notifications: ^22.3.2
+  flutter_foreground_task: ^11.0.3
 
 dev_dependencies:
   flutter_test:
@@ -93,3 +95,9 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
+
+# shared_preferences_android 2.5 talks to Kotlin over JNI with one process-wide instance: the
+# app's engine unregisters it when the activity is destroyed, so the background monitor's engine
+# loses its settings (and R8 breaks the JNI lookups). 2.4 uses platform channels per engine.
+dependency_overrides:
+  shared_preferences_android: ">=2.4.0 <2.5.0"

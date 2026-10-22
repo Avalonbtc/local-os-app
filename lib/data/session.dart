@@ -5,6 +5,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../api/client.dart';
 import 'demo_backend.dart';
+import 'monitor.dart';
 
 /// Who is signed in, and to which controller. Credentials live in the platform keychain /
 /// keystore, never in plain preferences.
@@ -21,6 +22,12 @@ class SessionController extends ChangeNotifier {
   bool demo = false;
   bool restoring = true;
   String lastServer = '';
+
+  /// Saved credentials, also read by the background monitor's own isolate.
+  static Future<Credentials?> readStored([FlutterSecureStorage storage = const FlutterSecureStorage()]) async {
+    final raw = await storage.read(key: _key);
+    return raw == null ? null : Credentials.fromJson(jsonDecode(raw) as Map<String, dynamic>);
+  }
 
   Future<void> restore() async {
     try {
@@ -68,6 +75,8 @@ class SessionController extends ChangeNotifier {
     backend = null;
     demo = false;
     notifyListeners();
+    // Signed out: nothing left to monitor.
+    await BackgroundMonitor.stop();
     try {
       await _storage.delete(key: _key);
     } catch (_) {
