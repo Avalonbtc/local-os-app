@@ -56,6 +56,7 @@ void main() {
     // Leave no timers running past the test.
     await tester.tap(find.text('更多').last);
     await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.text('退出登录'), 200, scrollable: find.byType(Scrollable).last);
     await tester.tap(find.text('退出登录'));
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(FilledButton, '退出'));
@@ -100,6 +101,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('更多').last);
     await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.text('退出登录'), 200, scrollable: find.byType(Scrollable).last);
     await tester.tap(find.text('退出登录'));
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(FilledButton, '退出'));
@@ -129,6 +131,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('更多').last);
     await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.text('退出登录'), 200, scrollable: find.byType(Scrollable).last);
     await tester.tap(find.text('退出登录'));
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(FilledButton, '退出'));

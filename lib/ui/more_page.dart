@@ -8,6 +8,10 @@ import '../api/models.dart';
 import '../data/monitor.dart';
 import '../theme.dart';
 import '../util/format.dart';
+import 'flight_edit_page.dart';
+import 'machine_form_page.dart';
+import 'overclock_page.dart';
+import 'terminal_page.dart';
 import 'widgets.dart';
 
 class MorePage extends StatelessWidget {
@@ -56,6 +60,9 @@ class MorePage extends StatelessWidget {
           group([
             item(Icons.task_alt_rounded, '任务', () => push(context, const JobsPage())),
             item(Icons.account_balance_wallet_outlined, '钱包', () => push(context, const WalletsPage())),
+            item(Icons.speed_rounded, '超频模板', () => push(context, const OcProfilesPage())),
+            item(Icons.terminal_rounded, '批量执行命令', () => push(context, const CommandPage())),
+            item(Icons.playlist_add_rounded, '批量添加矿机', () => push(context, const BatchImportPage())),
           ]),
           const SectionLabel('设置'),
           group([
@@ -70,12 +77,6 @@ class MorePage extends StatelessWidget {
               await session.logout();
             }, color: C.badText),
           ]),
-          const SizedBox(height: 16),
-          const Text(
-            '超频、BIOS、终端、添加矿机和编辑飞行表暂时在主控网页完成。',
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 12, color: C.muted, height: 1.5),
-          ),
         ],
       ),
     );
@@ -486,47 +487,92 @@ class _NumberField extends StatelessWidget {
       );
 }
 
-class WalletsPage extends StatelessWidget {
+class WalletsPage extends StatefulWidget {
   const WalletsPage({super.key});
   @override
+  State<WalletsPage> createState() => _WalletsPageState();
+}
+
+class _WalletsPageState extends State<WalletsPage> {
+  List<Wallet>? _wallets;
+  Object? _error;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_wallets == null && _error == null) _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final list = await AppScope.of(context).backend.getJson('/api/v1/catalog/wallets') as List;
+      if (mounted) {
+        setState(() {
+          _wallets = list.map((w) => Wallet.fromJson(asMap(w))).toList()..sort((a, b) => naturalCompare(a.name, b.name));
+          _error = null;
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _error = e);
+    }
+  }
+
+  Future<void> _edit([Wallet? w]) async {
+    if (await editWallet(context, wallet: w) != null) await _load();
+  }
+
+  Future<void> _delete(Wallet w) async {
+    if (!await confirm(context, '删除钱包「${w.name}」？', '正在被飞行表使用的钱包不能删除。', action: '删除', danger: true)) return;
+    if (!mounted) return;
+    try {
+      await AppScope.of(context).backend.send('DELETE', '/api/v1/catalog/wallets/${w.id}');
+      await _load();
+    } catch (e) {
+      if (mounted) toast(context, '删除失败：${errorText(e)}');
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final b = AppScope.of(context).backend;
+    final wallets = _wallets;
     return Scaffold(
-      appBar: AppBar(title: const Text('钱包')),
-      body: FutureBuilder<dynamic>(
-        future: b.getJson('/api/v1/catalog/wallets'),
-        builder: (context, snap) {
-          if (snap.hasError) return EmptyHint('读取钱包失败：${errorText(snap.error!)}');
-          if (!snap.hasData) return const Center(child: CircularProgressIndicator());
-          final wallets = (snap.data as List).map((w) => Wallet.fromJson(asMap(w))).toList();
-          if (wallets.isEmpty) return const EmptyHint('还没有钱包，请先在主控网页添加');
-          return ListView.separated(
-            padding: const EdgeInsets.all(16),
-            itemCount: wallets.length,
-            separatorBuilder: (_, _) => const SizedBox(height: 10),
-            itemBuilder: (context, i) {
-              final w = wallets[i];
-              return Panel(
-                child: Row(children: [
-                  DecoratedBox(
-                    decoration: BoxDecoration(color: const Color(0xFF2A2416), borderRadius: BorderRadius.circular(10)),
-                    child: SizedBox.square(dimension: 38, child: Center(child: Text(w.coin, style: mono.copyWith(color: C.rate, fontWeight: FontWeight.w700, fontSize: 11)))),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Text(w.name, style: const TextStyle(fontWeight: FontWeight.w600)),
-                      const SizedBox(height: 2),
-                      SelectableText(w.address, maxLines: 1, style: mono.copyWith(fontSize: 12, color: C.muted)),
-                      if (w.note.isNotEmpty) Text(w.note, style: const TextStyle(fontSize: 12, color: C.muted)),
-                    ]),
-                  ),
-                ]),
-              );
-            },
-          );
-        },
+      appBar: AppBar(
+        title: const Text('钱包'),
+        actions: [IconButton(tooltip: '新建钱包', onPressed: _edit, icon: const Icon(Icons.add))],
       ),
+      body: _error != null && wallets == null
+          ? EmptyHint('读取钱包失败：${errorText(_error!)}')
+          : wallets == null
+              ? const Center(child: CircularProgressIndicator())
+              : wallets.isEmpty
+                  ? const EmptyHint('还没有钱包，点右上角 ＋ 添加')
+                  : ListView.separated(
+                      padding: const EdgeInsets.all(16),
+                      itemCount: wallets.length,
+                      separatorBuilder: (_, _) => const SizedBox(height: 10),
+                      itemBuilder: (context, i) {
+                        final w = wallets[i];
+                        return Panel(
+                          onTap: () => _edit(w),
+                          child: Row(children: [
+                            DecoratedBox(
+                              decoration: BoxDecoration(color: const Color(0xFF2A2416), borderRadius: BorderRadius.circular(10)),
+                              child: SizedBox.square(dimension: 38, child: Center(child: Text(w.coin, style: mono.copyWith(color: C.rate, fontWeight: FontWeight.w700, fontSize: 11)))),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                Text(w.name, style: const TextStyle(fontWeight: FontWeight.w600)),
+                                const SizedBox(height: 2),
+                                Text(w.address, maxLines: 1, overflow: TextOverflow.ellipsis, style: mono.copyWith(fontSize: 12, color: C.muted)),
+                                if (w.note.isNotEmpty) Text(w.note, style: const TextStyle(fontSize: 12, color: C.muted)),
+                              ]),
+                            ),
+                            IconButton(tooltip: '删除', onPressed: () => _delete(w), icon: const Icon(Icons.delete_outline, size: 20, color: C.muted)),
+                          ]),
+                        );
+                      },
+                    ),
     );
   }
 }

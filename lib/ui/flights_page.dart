@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import '../api/client.dart';
 import '../api/models.dart';
 import '../theme.dart';
+import 'batch_sheet.dart';
+import 'flight_edit_page.dart';
 import 'more_page.dart';
 import 'widgets.dart';
 
@@ -42,11 +44,8 @@ class _FlightsPageState extends State<FlightsPage> {
   Future<void> _apply(FlightSheet sheet) async {
     final scope = AppScope.of(context);
     final rows = scope.fleet.snapshot.rows;
-    final picked = await showModalBottomSheet<List<String>>(
-      context: context,
-      isScrollControlled: true,
-      builder: (_) => _MachinePicker(rows: rows, sheet: sheet),
-    );
+    final picked = await pickMachines(context, rows,
+        title: '应用「${sheet.name}」到', action: (n) => '应用到 $n 台（矿工会重启）', current: (r) => r.instances.isEmpty ? '未应用' : (r.instances.first.sheetName ?? '—'));
     if (picked == null || picked.isEmpty || !mounted) return;
     try {
       await submitJob(scope.backend, picked, {'kind': 'apply', 'sheet_id': sheet.id});
@@ -54,6 +53,11 @@ class _FlightsPageState extends State<FlightsPage> {
     } catch (e) {
       if (mounted) toast(context, '提交失败：${errorText(e)}');
     }
+  }
+
+  Future<void> _edit([FlightSheet? sheet]) async {
+    final changed = await push<bool>(context, FlightEditPage(sheet: sheet));
+    if (changed == true && mounted) await _load();
   }
 
   @override
@@ -65,6 +69,7 @@ class _FlightsPageState extends State<FlightsPage> {
         title: const Text('飞行表'),
         actions: [
           IconButton(tooltip: '钱包', onPressed: () => push(context, const WalletsPage()), icon: const Icon(Icons.account_balance_wallet_outlined)),
+          IconButton(tooltip: '新建飞行表', onPressed: _edit, icon: const Icon(Icons.add)),
         ],
       ),
       body: _error != null
@@ -83,17 +88,25 @@ class _FlightsPageState extends State<FlightsPage> {
                           inUse[id] = (inUse[id] ?? 0) + 1;
                         }
                       }
-                      if (sheets.isEmpty) return const EmptyHint('还没有飞行表。新建和编辑先在主控网页完成。');
+                      if (sheets.isEmpty) {
+                        return ListView(children: [
+                          const EmptyHint('还没有飞行表'),
+                          Center(child: FilledButton.icon(onPressed: _edit, icon: const Icon(Icons.add), label: const Text('新建飞行表'))),
+                        ]);
+                      }
                       return ListView.separated(
                         padding: const EdgeInsets.all(16),
-                        itemCount: sheets.length + 1,
+                        itemCount: sheets.length,
                         separatorBuilder: (_, _) => const SizedBox(height: 12),
                         itemBuilder: (context, i) {
-                          if (i == sheets.length) {
-                            return const Text('新建、编辑飞行表暂时在主控网页完成。', textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: C.muted));
-                          }
                           final s = sheets[i];
-                          return _SheetCard(sheet: s, wallets: _wallets, inUse: inUse[s.id] ?? 0, onApply: () => _apply(s));
+                          return _SheetCard(
+                            sheet: s,
+                            wallets: _wallets,
+                            inUse: inUse[s.id] ?? 0,
+                            onApply: () => _apply(s),
+                            onEdit: () => _edit(s),
+                          );
                         },
                       );
                     },
@@ -104,11 +117,12 @@ class _FlightsPageState extends State<FlightsPage> {
 }
 
 class _SheetCard extends StatelessWidget {
-  const _SheetCard({required this.sheet, required this.wallets, required this.inUse, required this.onApply});
+  const _SheetCard({required this.sheet, required this.wallets, required this.inUse, required this.onApply, required this.onEdit});
   final FlightSheet sheet;
   final Map<String, Wallet> wallets;
   final int inUse;
   final VoidCallback onApply;
+  final VoidCallback onEdit;
 
   @override
   Widget build(BuildContext context) {
@@ -137,7 +151,11 @@ class _SheetCard extends StatelessWidget {
           _Line('软件', '${t.minerName} ${t.minerVersion}${t.algorithm.isEmpty ? '' : ' · ${t.algorithm}'}'),
         ],
         const SizedBox(height: 10),
-        SizedBox(width: double.infinity, child: FilledButton(onPressed: onApply, child: const Text('应用到矿机'))),
+        Row(children: [
+          Expanded(child: OutlinedButton(onPressed: onEdit, child: const Text('编辑'))),
+          const SizedBox(width: 8),
+          Expanded(flex: 2, child: FilledButton(onPressed: onApply, child: const Text('应用到矿机'))),
+        ]),
       ]),
     );
   }
@@ -156,69 +174,4 @@ class _Line extends StatelessWidget {
           Expanded(child: Text(v, style: (monospace ? mono : const TextStyle()).copyWith(fontSize: 12, height: 1.6))),
         ]),
       );
-}
-
-class _MachinePicker extends StatefulWidget {
-  const _MachinePicker({required this.rows, required this.sheet});
-  final List<FleetRow> rows;
-  final FlightSheet sheet;
-  @override
-  State<_MachinePicker> createState() => _MachinePickerState();
-}
-
-class _MachinePickerState extends State<_MachinePicker> {
-  final Set<String> _picked = {};
-
-  @override
-  Widget build(BuildContext context) {
-    final rows = widget.rows;
-    return SafeArea(
-      child: SizedBox(
-        height: MediaQuery.sizeOf(context).height * 0.75,
-        child: Column(children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 0, 8, 4),
-            child: Row(children: [
-              Expanded(child: Text('应用「${widget.sheet.name}」到', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600))),
-              TextButton(
-                onPressed: () => setState(() => _picked.length == rows.length ? _picked.clear() : _picked.addAll(rows.map((r) => r.machine.id))),
-                child: Text(_picked.length == rows.length ? '全不选' : '全选'),
-              ),
-            ]),
-          ),
-          Expanded(
-            child: ListView.builder(
-              itemExtent: 56,
-              itemCount: rows.length,
-              itemBuilder: (context, i) {
-                final r = rows[i];
-                final on = _picked.contains(r.machine.id);
-                final current = r.instances.isEmpty ? '未应用' : (r.instances.first.sheetName ?? '—');
-                return CheckboxListTile(
-                  value: on,
-                  onChanged: (_) => setState(() => on ? _picked.remove(r.machine.id) : _picked.add(r.machine.id)),
-                  title: Text(r.machine.name),
-                  subtitle: Text('当前：$current', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: C.muted)),
-                  activeColor: C.accent,
-                  checkColor: C.onAccent,
-                  controlAffinity: ListTileControlAffinity.leading,
-                  dense: true,
-                );
-              },
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-            child: SizedBox(
-              width: double.infinity,
-              child: FilledButton(
-                onPressed: _picked.isEmpty ? null : () => Navigator.pop(context, _picked.toList()),
-                child: Text(_picked.isEmpty ? '选择矿机' : '应用到 ${_picked.length} 台（矿工会重启）'),
-              ),
-            ),
-          ),
-        ]),
-      ),
-    );
-  }
 }

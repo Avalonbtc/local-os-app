@@ -279,3 +279,75 @@ void toast(BuildContext context, String text, {String? action, VoidCallback? onA
 }
 
 String errorText(Object e) => e is ApiException ? e.message : '$e';
+
+/// A labelled text input for the edit forms; 12 pt gap below.
+class FormText extends StatelessWidget {
+  const FormText(
+    this.controller,
+    this.label, {
+    super.key,
+    this.hint,
+    this.help,
+    this.obscure = false,
+    this.monospace = false,
+    this.lines = 1,
+    this.keyboard,
+    this.onChanged,
+    this.enabled = true,
+    this.suffix,
+  });
+  final TextEditingController controller;
+  final String label;
+  final String? hint;
+  final String? help;
+  final bool obscure;
+  final bool monospace;
+  final int lines;
+  final TextInputType? keyboard;
+  final ValueChanged<String>? onChanged;
+  final bool enabled;
+  final Widget? suffix;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: TextField(
+          controller: controller,
+          obscureText: obscure,
+          enabled: enabled,
+          autocorrect: false,
+          enableSuggestions: !obscure && !monospace,
+          minLines: lines > 1 ? lines : null,
+          maxLines: obscure ? 1 : (lines > 1 ? lines + 4 : 1),
+          keyboardType: keyboard ?? (lines > 1 ? TextInputType.multiline : null),
+          style: monospace ? mono.copyWith(fontSize: 13) : null,
+          onChanged: onChanged,
+          decoration: InputDecoration(
+            labelText: label,
+            hintText: hint,
+            helperText: help,
+            helperMaxLines: 3,
+            alignLabelWithHint: lines > 1,
+            suffixIcon: suffix,
+          ),
+        ),
+      );
+}
+
+/// Two-option segmented choice used by the forms (auth method, BMC protocol…).
+class Choice<T> extends StatelessWidget {
+  const Choice({super.key, required this.value, required this.options, required this.onChanged});
+  final T value;
+  final Map<T, String> options;
+  final ValueChanged<T> onChanged;
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: SegmentedButton<T>(
+          showSelectedIcon: false,
+          segments: [for (final e in options.entries) ButtonSegment(value: e.key, label: Text(e.value))],
+          selected: {value},
+          onSelectionChanged: (s) => onChanged(s.first),
+        ),
+      );
+}

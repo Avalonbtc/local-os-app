@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:isolate';
 import 'dart:math';
@@ -18,6 +19,37 @@ class FakeBackend extends Backend {
   final _started = DateTime.now().millisecondsSinceEpoch;
   final _jobs = <Map<String, dynamic>>[];
   final _simulated = <Map<String, dynamic>>[];
+
+  /// Machines added / removed through the API (the generated farm stays as is otherwise).
+  final _added = <Map<String, dynamic>>[];
+  final _deleted = <String>{};
+
+  /// Catalog and flight sheets, editable like the real controller's.
+  late final Map<String, List<Map<String, dynamic>>> _catalog = {
+    'wallets': (jsonDecode(_wallets()) as List).cast<Map<String, dynamic>>(),
+    'oc-profiles': [
+      {
+        'id': 'oc1',
+        'name': '3070 低功耗',
+        'revision': 1,
+        'data': {
+          'nvidia': {'clock': [1500], 'mem': [2400], 'plimit': [130], 'fan': [70]},
+        },
+      },
+    ],
+  };
+  late final List<Map<String, dynamic>> _sheets = (jsonDecode(_flights()) as List).cast<Map<String, dynamic>>();
+  var _bios = <String, dynamic>{
+    'settings': [
+      {'id': 'nps', 'name': 'NUMA nodes per socket', 'group': 'Advanced/AMD CBS/DF', 'value': 'NPS1', 'kind': 'Option', 'options': ['NPS0', 'NPS1', 'NPS2', 'NPS4', 'Auto'], 'help': '每个 CPU 的 NUMA 节点数', 'condition': '', 'license': ''},
+      {'id': 'ctdp', 'name': 'cTDP Control', 'group': 'Advanced/AMD CBS/NBIO', 'value': 'Auto', 'kind': 'Option', 'options': ['Auto', 'Manual'], 'help': '', 'condition': '', 'license': ''},
+      {'id': 'ctdp_w', 'name': 'cTDP', 'group': 'Advanced/AMD CBS/NBIO', 'value': '240', 'kind': 'Numeric', 'options': [], 'minimum': 155, 'maximum': 280, 'help': '可配置 TDP（瓦）', 'condition': 'cTDP Control = Manual', 'license': ''},
+    ],
+    'licenses': ['SFT-DCMS-SINGLE'],
+    'revision': 'rev-1',
+    'pending': <String, dynamic>{},
+    'observed_at': '2026-10-22T08:00:00Z',
+  };
 
   /// Raise a new alert, alternating rig-05 going offline and recovering.
   void simulateAlert() {
@@ -67,7 +99,12 @@ class FakeBackend extends Backend {
         case ['me']:
           return jsonEncode({'actor': {'name': '测试'}, 'csrf': ''});
         case ['machines']:
-          return background ? _bgMachines(count) : _machines(count);
+          if (_added.isEmpty && _deleted.isEmpty) return background ? _bgMachines(count) : _machines(count);
+          return jsonEncode([
+            for (final m in (jsonDecode(_machines(count)) as List).cast<Map<String, dynamic>>())
+              if (!_deleted.contains(m['id'])) m,
+            ..._added,
+          ]);
         case ['telemetry']:
           final one = q['machine_id'];
           return background ? _bgTelemetry(count, now, one) : _telemetry(count, now, one);
@@ -76,9 +113,24 @@ class FakeBackend extends Backend {
         case ['alerts']:
           return _alerts(now);
         case ['flight-sheets']:
-          return _flights();
-        case ['catalog', 'wallets']:
-          return _wallets();
+          return jsonEncode(_sheets);
+        case ['catalog', final kind]:
+          return jsonEncode(_catalog[kind] ?? const []);
+        case ['adapters']:
+          return jsonEncode([
+            {
+              'id': 'xmrig',
+              'name': 'XMRig',
+              'releases': [
+                {'version': '6.22.2', 'url': 'https://github.com/xmrig/xmrig/releases/download/v6.22.2/xmrig-6.22.2-linux-static-x64.tar.gz', 'executable': 'xmrig-6.22.2/xmrig', 'sha256': null},
+                {'version': '6.21.0', 'url': 'https://github.com/xmrig/xmrig/releases/download/v6.21.0/xmrig-6.21.0-linux-static-x64.tar.gz', 'executable': 'xmrig-6.21.0/xmrig', 'sha256': null},
+              ],
+            },
+            {'id': 'srbminer', 'name': 'SRBMiner-Multi', 'releases': [{'version': '2.6.6', 'url': 'https://example.invalid/srb.tar.gz', 'executable': 'SRBMiner-Multi', 'sha256': null}]},
+            {'id': 'hive-custom', 'name': 'Custom', 'releases': []},
+          ]);
+        case ['machines', _, 'bios']:
+          return jsonEncode(_bios);
         case ['jobs']:
           return jsonEncode(_jobs.map((j) => _jobView(j, now)).toList().reversed.toList());
         case ['jobs', final jobId]:
@@ -124,7 +176,67 @@ class FakeBackend extends Backend {
           final input = (body as Map).cast<String, dynamic>();
           final jobId = 'job-${_jobs.length + 1}';
           _jobs.add({'id': jobId, 'input': input, 'created': now, 'cancelled': false});
+          final action = (input['action'] as Map).cast<String, dynamic>();
+          if (action['kind'] == 'bios_write') {
+            _bios = {..._bios, 'pending': action['changes']};
+          }
           return jsonEncode({'job_id': jobId});
+        case ['ssh', 'host-key']:
+          return jsonEncode({'fingerprint': _fingerprint('${(body as Map)['host']}'), 'algorithm': 'ssh-ed25519'});
+        case ['ssh', 'host-keys']:
+          return jsonEncode([
+            for (final t in ((body as Map)['targets'] as List).cast<Map>())
+              '${t['host']}'.endsWith('.99')
+                  ? {'host': t['host'], 'port': t['port'], 'error': '连接被拒绝'}
+                  : {'host': t['host'], 'port': t['port'], 'fingerprint': _fingerprint('${t['host']}'), 'algorithm': 'ssh-ed25519'},
+          ]);
+        case ['machines', 'batch']:
+          final input = (body as Map).cast<String, dynamic>();
+          final results = <Map<String, dynamic>>[];
+          for (final m in (input['machines'] as List).cast<Map<String, dynamic>>()) {
+            final mid = '10000000-0000-4000-8000-${(_added.length + 1).toString().padLeft(12, '0')}';
+            _added.add({...m, 'id': mid, 'credential': null, 'created_at': DateTime.now().toUtc().toIso8601String()});
+            results.add({'name': m['name'], 'host': m['host'], 'machine_id': mid, 'error': null});
+          }
+          return jsonEncode({'results': results, 'bootstrap_job_id': input['bootstrap'] == true ? 'job-boot' : null, 'bootstrap_error': null});
+        case ['machines', final m] when method == 'PUT':
+          _added.removeWhere((x) => x['id'] == m);
+          _deleted.add(m);
+          _added.add({...(body as Map).cast<String, dynamic>(), 'id': m});
+          return jsonEncode({'id': m});
+        case ['machines', final m] when method == 'DELETE':
+          _deleted.add(m);
+          _added.removeWhere((x) => x['id'] == m);
+          return '';
+        case ['flight-sheets'] when method == 'POST':
+          final sheet = {...(body as Map).cast<String, dynamic>(), 'id': 's${_sheets.length + 10}', 'version': 1}..remove('expected_version');
+          _sheets.add(sheet);
+          return jsonEncode(sheet);
+        case ['flight-sheets', final sid] when method == 'PUT':
+          final i = _sheets.indexWhere((s) => s['id'] == sid);
+          final input = (body as Map).cast<String, dynamic>();
+          if (i < 0) throw const ApiException(404, '记录不存在');
+          if (input['expected_version'] != _sheets[i]['version']) throw const ApiException(409, '版本冲突');
+          _sheets[i] = {...input, 'id': sid, 'version': (_sheets[i]['version'] as int) + 1}..remove('expected_version');
+          return jsonEncode({..._sheets[i], 'apply_job_id': 'job-apply'});
+        case ['flight-sheets', final sid] when method == 'DELETE':
+          _sheets.removeWhere((s) => s['id'] == sid);
+          return '';
+        case ['catalog', final kind] when method == 'POST':
+          final list = _catalog.putIfAbsent(kind, () => []);
+          final item = {...(body as Map).cast<String, dynamic>(), 'id': '$kind-${list.length + 1}', 'kind': kind, 'revision': 1}..remove('expected_revision');
+          list.add(item);
+          return jsonEncode(item);
+        case ['catalog', final kind, final cid] when method == 'PUT':
+          final list = _catalog[kind] ?? [];
+          final i = list.indexWhere((x) => x['id'] == cid);
+          if (i < 0) throw const ApiException(404, '记录不存在');
+          list[i] = {...(body as Map).cast<String, dynamic>(), 'id': cid, 'kind': kind, 'revision': ((list[i]['revision'] as int?) ?? 1) + 1}
+            ..remove('expected_revision');
+          return jsonEncode(list[i]);
+        case ['catalog', final kind, final cid] when method == 'DELETE':
+          _catalog[kind]?.removeWhere((x) => x['id'] == cid);
+          return '';
         case ['jobs', final jobId, 'cancel']:
           for (final j in _jobs) {
             if (j['id'] == jobId) j['cancelled'] = true;
@@ -145,6 +257,12 @@ class FakeBackend extends Backend {
   }
 
   int _index(String machineId) => int.tryParse(machineId.split('-').last) ?? 0;
+
+  static String _fingerprint(String host) => 'SHA256:${base64.encode(utf8.encode('fake-host-key-$host')).replaceAll('=', '')}';
+
+  /// Echoes what is typed, like a shell with local echo; `exit` closes the session.
+  @override
+  Future<TerminalLink> openTerminal(String machineId, {String? instance}) async => _EchoLink(instance ?? name(_index(machineId)));
 
   Map<String, dynamic> _jobView(Map<String, dynamic> j, int now) {
     final input = (j['input'] as Map).cast<String, dynamic>();
@@ -214,7 +332,13 @@ class FakeBackend extends Backend {
           {
             'instance': 'xmr',
             'wallet_id': 'w1',
-            'miner': {'adapter': 'xmrig', 'name': 'XMRig', 'version': '6.22.2'},
+            'miner': {
+              'adapter': 'xmrig',
+              'name': 'XMRig',
+              'version': '6.22.2',
+              'url': 'https://github.com/xmrig/xmrig/releases/download/v6.22.2/xmrig-6.22.2-linux-static-x64.tar.gz',
+              'executable': 'xmrig-6.22.2/xmrig',
+            },
             'config': {'urls': [url], 'algorithm': 'rx/0', 'wallet_template': '%WAL%.%WORKER_NAME%'},
           },
         ],
@@ -322,7 +446,24 @@ String _telemetry(int count, int now, String? only) {
         'load': [126.4, 126.1, 125.9],
         'memory_total': 270140000000,
         'memory_used': 41000000000,
-        'gpus': [],
+        'gpus': i == 2
+            ? [
+                {'id': '0000:01:00.0', 'vendor': 'NVIDIA', 'model': 'GeForce RTX 3070', 'temperature_c': 61, 'core_mhz': 1500, 'mem_mhz': 7000, 'power_w': 128, 'power_limit_w': 130, 'fan_pct': 70},
+                {'id': '0000:02:00.0', 'vendor': 'NVIDIA', 'model': 'GeForce RTX 3070', 'temperature_c': 63, 'core_mhz': 1500, 'mem_mhz': 7000, 'power_w': 129, 'power_limit_w': 130, 'fan_pct': 70},
+              ]
+            : [],
+        if (i == 2)
+          'gpu_oc': {
+            'profile_name': '3070 低功耗',
+            'applied_at': now ~/ 1000 - 3600,
+            'config': {
+              'nvidia': {'clock': [1500], 'mem': [2400], 'plimit': [130], 'fan': [70]},
+            },
+            'results': [
+              {'bus_id': '0000:01:00.0', 'applied': ['核心 1500', '显存 +2400'], 'errors': [], 'skipped': []},
+              {'bus_id': '0000:02:00.0', 'applied': ['核心 1500'], 'errors': ['显存：nvidia-settings 无权限'], 'skipped': []},
+            ],
+          },
         'addresses': [{'address': '192.168.1.${21 + i % 220}'}],
         'runtime_version': '0.4.0',
         'transport': i % 5 == 0 ? 'ssh' : 'push',
@@ -431,4 +572,43 @@ String _history(int index, String kind, int hours, int now) {
     }
   }
   return jsonEncode(out);
+}
+
+class _EchoLink implements TerminalLink {
+  _EchoLink(String host) {
+    scheduleMicrotask(() => _out.add(utf8.encode('Welcome to $host\r\n# ')));
+  }
+  final _out = StreamController<List<int>>();
+  final _line = StringBuffer();
+  final sizes = <(int, int)>[];
+
+  @override
+  Stream<List<int>> get output => _out.stream;
+
+  @override
+  void input(List<int> bytes) {
+    final text = utf8.decode(bytes, allowMalformed: true);
+    for (final ch in text.split('')) {
+      if (ch == '\r') {
+        final line = _line.toString();
+        _line.clear();
+        if (line == 'exit') {
+          _out.close();
+          return;
+        }
+        _out.add(utf8.encode('\r\n$line\r\n# '));
+      } else {
+        _line.write(ch);
+        _out.add(utf8.encode(ch));
+      }
+    }
+  }
+
+  @override
+  void resize(int cols, int rows) => sizes.add((cols, rows));
+
+  @override
+  Future<void> close() async {
+    if (!_out.isClosed) await _out.close();
+  }
 }

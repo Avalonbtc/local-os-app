@@ -19,6 +19,7 @@ class Machine {
     this.hasBmc = false,
     this.bmcLabel,
     this.policy = const {},
+    this.raw = const {},
   });
   final String id;
   final String name;
@@ -29,6 +30,9 @@ class Machine {
   final bool hasBmc;
   final String? bmcLabel;
   final Map<String, dynamic> policy;
+
+  /// The record as the controller sent it (port, user, host key, BMC…), for the edit form.
+  final Map<String, dynamic> raw;
 
   factory Machine.fromJson(Map<String, dynamic> j) {
     final bmc = j['bmc'];
@@ -42,6 +46,7 @@ class Machine {
       hasBmc: bmc is Map,
       bmcLabel: bmc is Map ? '${asStr(bmc['provider'], 'BMC')} · ${asStr(bmc['url'])}' : null,
       policy: asMap(j['policy']),
+      raw: j,
     );
   }
 }
@@ -154,6 +159,8 @@ class FleetRow {
     this.poolChecks = const [],
     this.poolState,
     this.gpuCount = 0,
+    this.gpus = const [],
+    this.gpuOc = const {},
   });
   final Machine machine;
   final bool fresh;
@@ -177,6 +184,12 @@ class FleetRow {
   final List<PoolCheck> poolChecks;
   final String? poolState;
   final int gpuCount;
+
+  /// `system.gpus[]` as reported (vendor, name, temperature…).
+  final List<Map<String, dynamic>> gpus;
+
+  /// `system.gpu_oc`: the overclock the rig last applied ({profile_name, config, results}).
+  final Map<String, dynamic> gpuOc;
 
   bool get poolOffline => state == RigState.poolOffline;
   bool get problem => issues.isNotEmpty;
@@ -391,6 +404,8 @@ FleetSnapshot buildFleet(String machinesJson, String telemetryJson, String statu
       poolChecks: checks,
       poolState: ps,
       gpuCount: gpus.length,
+      gpus: gpus.map(asMap).toList(growable: false),
+      gpuOc: asMap(sys['gpu_oc']),
     ));
   }
   final rateList = rates.values.map((r) => CoinRate(r.$1, r.$2, r.$3, r.$4.length)).toList()
@@ -465,16 +480,20 @@ class MachineMessage {
 }
 
 class FlightSheet {
-  const FlightSheet(this.id, this.name, this.version, this.tasks);
+  const FlightSheet(this.id, this.name, this.version, this.tasks, [this.rawTasks = const []]);
   final String id;
   final String name;
   final int version;
   final List<FlightTask> tasks;
+
+  /// Tasks as stored ({instance, wallet_id, miner, config}), for the editor.
+  final List<Map<String, dynamic>> rawTasks;
   factory FlightSheet.fromJson(Map<String, dynamic> j) => FlightSheet(
         asStr(j['id']),
         asStr(j['name']),
         asNum(j['version'])?.toInt() ?? 1,
         asList(j['tasks']).map((t) => FlightTask.fromJson(asMap(t))).toList(growable: false),
+        asList(j['tasks']).map(asMap).toList(growable: false),
       );
 }
 
@@ -502,16 +521,17 @@ class FlightTask {
 }
 
 class Wallet {
-  const Wallet(this.id, this.name, this.coin, this.address, this.note);
+  const Wallet(this.id, this.name, this.coin, this.address, this.note, [this.revision]);
   final String id;
   final String name;
   final String coin;
   final String address;
   final String note;
+  final int? revision;
   factory Wallet.fromJson(Map<String, dynamic> j) {
     final d = asMap(j['data']);
     return Wallet(asStr(j['id']), asStr(j['name']), asStr(d['coin_symbol'], '?').toUpperCase(),
-        asStr(d['address']), asStr(d['note'], asStr(d['source'])));
+        asStr(d['address']), asStr(d['notes'], asStr(d['note'], asStr(d['source']))), asNum(j['revision'])?.toInt());
   }
 }
 

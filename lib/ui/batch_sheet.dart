@@ -4,6 +4,8 @@ import '../api/client.dart';
 import '../api/models.dart';
 import '../theme.dart';
 import 'more_page.dart';
+import 'overclock_page.dart';
+import 'terminal_page.dart';
 import 'widgets.dart';
 
 /// Actions on one or more machines. Everything becomes a controller job; the result shows up in
@@ -70,6 +72,50 @@ Future<void> showBatchSheet(BuildContext context, List<FleetRow> rows, {VoidCall
     if (ok) await run('应用飞行表', rows.map((r) => r.machine.id).toList(), {'kind': 'apply', 'sheet_id': sheet.id});
   }
 
+  Future<void> overclock() async {
+    List<OcProfile> profiles;
+    try {
+      profiles = await loadOcProfiles(backend);
+    } catch (e) {
+      if (context.mounted) toast(context, '读取超频模板失败：${errorText(e)}');
+      return;
+    }
+    if (!context.mounted) return;
+    if (profiles.isEmpty) {
+      toast(context, '还没有超频模板', action: '新建', onAction: () => push(context, const OcProfilesPage()));
+      return;
+    }
+    final p = await showModalBottomSheet<OcProfile>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: ListView(shrinkWrap: true, children: [
+          const Padding(
+            padding: EdgeInsets.fromLTRB(20, 0, 20, 8),
+            child: Text('选择超频模板', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+          ),
+          for (final p in profiles) ListTile(title: Text(p.name), onTap: () => Navigator.pop(ctx, p)),
+        ]),
+      ),
+    );
+    if (p == null || !context.mounted) return;
+    final ok = await confirm(context, '应用「${p.name}」？', '${rows.length} 台矿机的显卡会立即应用这组参数。', action: '应用');
+    if (!ok) return;
+    try {
+      await submitJob(backend, rows.map((r) => r.machine.id).toList(), {'kind': 'gpu_oc', 'profile_name': p.name, 'config': p.config},
+          includeController: true);
+      if (!context.mounted) return;
+      onDone?.call();
+      toast(context, '已提交：应用超频 · ${rows.length} 台', action: '查看', onAction: () => push(context, const JobsPage()));
+    } catch (e) {
+      if (context.mounted) toast(context, '提交失败：${errorText(e)}');
+    }
+  }
+
+  Future<void> bootstrap() async {
+    final ok = await confirm(context, '重新部署运行层？', '在 ${rows.length} 台矿机上安装或更新 rig-agent 与矿工托管。正在运行的矿工会按飞行表恢复。', action: '部署');
+    if (ok) await run('部署运行层', rows.map((r) => r.machine.id).toList(), {'kind': 'bootstrap'});
+  }
+
   return showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
@@ -107,6 +153,15 @@ Future<void> showBatchSheet(BuildContext context, List<FleetRow> rows, {VoidCall
               action(Icons.flash_on_rounded, '强制重启', () => power('force_restart', '强制重启', danger: true), danger: true),
               action(Icons.block_rounded, '强制断电', () => power('force_off', '强制断电', danger: true), danger: true),
             ]),
+            const SectionLabel('维护'),
+            _Grid([
+              action(Icons.terminal_rounded, '执行命令', () async {
+                push(context, CommandPage(machineIds: rows.map((r) => r.machine.id).toList()));
+              }),
+              action(Icons.speed_rounded, '超频模板', overclock),
+              action(Icons.system_update_alt_rounded, '部署运行层', bootstrap),
+              const SizedBox.shrink(),
+            ]),
           ]),
         ),
       );
@@ -118,7 +173,7 @@ Future<FlightSheet?> pickFlightSheet(BuildContext context, List<FlightSheet> she
       context: context,
       builder: (ctx) => SafeArea(
         child: sheets.isEmpty
-            ? const EmptyHint('还没有飞行表，请先在主控网页创建')
+            ? const EmptyHint('还没有飞行表，请先在「飞行表」页新建')
             : ListView(
                 shrinkWrap: true,
                 padding: const EdgeInsets.only(bottom: 12),
@@ -175,4 +230,87 @@ class _Action extends StatelessWidget {
           Text(label, textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: danger ? C.badText : C.text)),
         ]),
       );
+}
+
+/// Pick machines from [rows]; returns their ids (null when dismissed).
+Future<List<String>?> pickMachines(
+  BuildContext context,
+  List<FleetRow> rows, {
+  required String title,
+  required String Function(int count) action,
+  String Function(FleetRow row)? current,
+  Set<String> initial = const {},
+}) =>
+    showModalBottomSheet<List<String>>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => _MachinePicker(rows: rows, title: title, action: action, current: current, initial: initial),
+    );
+
+class _MachinePicker extends StatefulWidget {
+  const _MachinePicker({required this.rows, required this.title, required this.action, this.current, this.initial = const {}});
+  final List<FleetRow> rows;
+  final String title;
+  final String Function(int count) action;
+  final String Function(FleetRow row)? current;
+  final Set<String> initial;
+  @override
+  State<_MachinePicker> createState() => _MachinePickerState();
+}
+
+class _MachinePickerState extends State<_MachinePicker> {
+  late final Set<String> _picked = {...widget.initial};
+
+  @override
+  Widget build(BuildContext context) {
+    final rows = widget.rows;
+    return SafeArea(
+      child: SizedBox(
+        height: MediaQuery.sizeOf(context).height * 0.75,
+        child: Column(children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 8, 4),
+            child: Row(children: [
+              Expanded(child: Text(widget.title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600))),
+              TextButton(
+                onPressed: () => setState(() => _picked.length == rows.length ? _picked.clear() : _picked.addAll(rows.map((r) => r.machine.id))),
+                child: Text(_picked.length == rows.length ? '全不选' : '全选'),
+              ),
+            ]),
+          ),
+          Expanded(
+            child: ListView.builder(
+              itemExtent: 56,
+              itemCount: rows.length,
+              itemBuilder: (context, i) {
+                final r = rows[i];
+                final on = _picked.contains(r.machine.id);
+                final current = widget.current?.call(r) ?? rowLook(r).label;
+                return CheckboxListTile(
+                  value: on,
+                  onChanged: (_) => setState(() => on ? _picked.remove(r.machine.id) : _picked.add(r.machine.id)),
+                  title: Text(r.machine.name),
+                  subtitle: Text(widget.current == null ? current : '当前：$current', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: C.muted)),
+                  activeColor: C.accent,
+                  checkColor: C.onAccent,
+                  controlAffinity: ListTileControlAffinity.leading,
+                  dense: true,
+                );
+              },
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+            child: SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: _picked.isEmpty ? null : () => Navigator.pop(context, _picked.toList()),
+                child: Text(_picked.isEmpty ? '选择矿机' : widget.action(_picked.length)),
+              ),
+            ),
+          ),
+        ]),
+      ),
+    );
+  }
 }

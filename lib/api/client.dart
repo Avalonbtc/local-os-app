@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:math';
 
 import 'package:http/http.dart' as http;
@@ -21,7 +22,58 @@ abstract class Backend {
   /// Raw response body; JSON decoding of large bodies happens off the UI isolate.
   Future<String> raw(String method, String path, {Map<String, String>? query, Object? body});
 
+  /// An SSH shell on the machine, or with [instance] the miner's console (`rig-miner attach`).
+  Future<TerminalLink> openTerminal(String machineId, {String? instance}) =>
+      throw const ApiException(null, '这个连接不支持终端');
+
   void close() {}
+}
+
+/// A live terminal: raw bytes both ways. [output] ends when the controller closes the session;
+/// an error on it carries the controller's reason (e.g. SSH refused).
+abstract class TerminalLink {
+  Stream<List<int>> get output;
+  void input(List<int> bytes);
+  void resize(int cols, int rows);
+  Future<void> close();
+}
+
+class _SocketLink implements TerminalLink {
+  _SocketLink(this._ws) {
+    _ws.listen(
+      (frame) {
+        if (frame is List<int>) {
+          _out.add(frame);
+        } else if (frame is String) {
+          // Text frames from the controller are control messages: `{"error": "..."}`.
+          try {
+            final error = (jsonDecode(frame) as Map)['error'];
+            if (error is String) _out.addError(ApiException(null, error));
+          } catch (_) {}
+        }
+      },
+      onError: (Object e) => _out.addError(ApiException(null, '终端连接中断：$e')),
+      onDone: _out.close,
+      cancelOnError: false,
+    );
+  }
+  final WebSocket _ws;
+  final _out = StreamController<List<int>>();
+
+  @override
+  Stream<List<int>> get output => _out.stream;
+  @override
+  void input(List<int> bytes) {
+    if (_ws.readyState == WebSocket.open) _ws.add(bytes);
+  }
+
+  @override
+  void resize(int cols, int rows) {
+    if (_ws.readyState == WebSocket.open) _ws.add(jsonEncode({'type': 'resize', 'cols': cols, 'rows': rows}));
+  }
+
+  @override
+  Future<void> close() => _ws.close();
 }
 
 extension BackendJson on Backend {
@@ -194,6 +246,38 @@ class HttpBackend extends Backend {
   }
 
   @override
+  Future<TerminalLink> openTerminal(String machineId, {String? instance}) async {
+    final base = Uri.parse(credentials.server);
+    final token = credentials.token;
+    final query = {
+      // A session must prove it is not a cross-site request; a token needs no CSRF.
+      if (token == null && credentials.csrf != null) 'csrf': credentials.csrf!,
+      'instance': ?instance,
+    };
+    final uri = base.replace(
+      scheme: base.scheme == 'https' ? 'wss' : 'ws',
+      path: '${base.path}/api/v1/machines/$machineId/terminal',
+      queryParameters: query.isEmpty ? null : query,
+    );
+    final headers = <String, dynamic>{
+      if (token != null) 'authorization': 'Bearer $token',
+      if (token == null && credentials.cookie != null) 'cookie': 'rigdeck_session=${credentials.cookie}',
+    };
+    try {
+      final ws = await WebSocket.connect(uri.toString(), headers: headers).timeout(_timeout);
+      ws.pingInterval = const Duration(seconds: 20);
+      return _SocketLink(ws);
+    } on TimeoutException {
+      throw const ApiException(null, '连接终端超时');
+    } on WebSocketException catch (e) {
+      // The upgrade was refused: 401/403 (CSRF, login expired) or 404 (machine gone).
+      throw ApiException(null, '主控拒绝打开终端：${e.message}');
+    } on SocketException catch (e) {
+      throw ApiException(null, '无法连接主控：${e.message}');
+    }
+  }
+
+  @override
   void close() => _client.close();
 }
 
@@ -204,12 +288,15 @@ String newIdempotencyKey() {
 
 /// Queue a job; returns its id. `action` uses the controller's tagged form, e.g.
 /// `{'kind': 'miner', 'operation': 'restart', 'instances': ['xmr']}`.
-Future<String> submitJob(Backend backend, List<String> machineIds, Map<String, dynamic> action) async {
+/// [includeController] lets the job run on the controller's own machine too (overclock, BIOS
+/// and commands target exactly what the user picked).
+Future<String> submitJob(Backend backend, List<String> machineIds, Map<String, dynamic> action,
+    {bool includeController = false}) async {
   final result = await backend.send('POST', '/api/v1/jobs', {
     'machine_ids': machineIds,
     'action': action,
     'idempotency_key': newIdempotencyKey(),
-    'include_controller': false,
+    'include_controller': includeController,
   });
   return (result as Map)['job_id'] as String;
 }

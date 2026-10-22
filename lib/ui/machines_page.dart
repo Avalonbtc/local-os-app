@@ -4,6 +4,7 @@ import '../api/models.dart';
 import '../theme.dart';
 import '../util/format.dart';
 import 'batch_sheet.dart';
+import 'machine_form_page.dart';
 import 'shell.dart';
 import 'widgets.dart';
 
@@ -127,6 +128,15 @@ class _MachinesPageState extends State<MachinesPage> {
                       TextSpan(text: '${s.rows.length}', style: mono.copyWith(fontSize: 14, color: C.muted, fontWeight: FontWeight.w400)),
                     ])),
                     actions: [
+                      PopupMenuButton<bool>(
+                        tooltip: '添加矿机',
+                        icon: const Icon(Icons.add),
+                        onSelected: (batch) => push(context, batch ? const BatchImportPage() : const MachineFormPage()),
+                        itemBuilder: (_) => const [
+                          PopupMenuItem(value: false, child: Text('添加一台')),
+                          PopupMenuItem(value: true, child: Text('批量添加')),
+                        ],
+                      ),
                       IconButton(
                         tooltip: '多选',
                         onPressed: () => setState(() => _selecting = true),

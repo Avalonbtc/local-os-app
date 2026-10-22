@@ -8,7 +8,11 @@ import '../data/stores.dart';
 import '../theme.dart';
 import '../util/format.dart';
 import 'batch_sheet.dart';
+import 'bios_page.dart';
+import 'machine_form_page.dart';
 import 'more_page.dart';
+import 'overclock_page.dart';
+import 'terminal_page.dart';
 import 'widgets.dart';
 
 class MachineDetailPage extends StatelessWidget {
@@ -37,9 +41,35 @@ class MachineDetailPage extends StatelessWidget {
               ]),
               actions: [
                 IconButton(
+                  tooltip: '终端',
+                  onPressed: () => push(context, TerminalPage(machine: row.machine)),
+                  icon: const Icon(Icons.terminal_rounded),
+                ),
+                IconButton(
                   tooltip: '操作',
                   onPressed: () => showBatchSheet(context, [row]),
                   icon: const Icon(Icons.bolt_rounded),
+                ),
+                PopupMenuButton<String>(
+                  tooltip: '更多',
+                  onSelected: (v) => push(context, switch (v) {
+                    'oc' => OverclockPage(machineId: machineId),
+                    'bios' => BiosPage(machine: row.machine),
+                    _ => MachineFormPage(machine: row.machine),
+                  }),
+                  itemBuilder: (_) => [
+                    const PopupMenuItem(value: 'oc', child: ListTile(leading: Icon(Icons.speed_rounded), title: Text('显卡超频'))),
+                    PopupMenuItem(
+                      value: 'bios',
+                      enabled: row.machine.hasBmc,
+                      child: ListTile(
+                        leading: const Icon(Icons.memory_rounded),
+                        title: const Text('BIOS'),
+                        subtitle: row.machine.hasBmc ? null : const Text('需要先配置 BMC'),
+                      ),
+                    ),
+                    const PopupMenuItem(value: 'edit', child: ListTile(leading: Icon(Icons.edit_outlined), title: Text('编辑矿机'))),
+                  ],
                 ),
               ],
               bottom: const TabBar(
@@ -249,6 +279,14 @@ class _MinersState extends State<_Miners> with AutomaticKeepAliveClientMixin {
                 const SizedBox(width: 8),
                 Expanded(child: OutlinedButton(onPressed: () => _loadLog(i.name), child: const Text('日志'))),
               ]),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  onPressed: () => push(context, TerminalPage(machine: r.machine, instance: i.name)),
+                  icon: const Icon(Icons.terminal_rounded, size: 18),
+                  label: const Text('矿工控制台'),
+                ),
+              ),
             ]),
           ),
           const SizedBox(height: 12),
