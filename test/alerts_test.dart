@@ -1,11 +1,12 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:rigdeck_app/api/models.dart';
-import 'package:rigdeck_app/data/demo_backend.dart';
 import 'package:rigdeck_app/data/stores.dart';
+
+import 'support/fake_backend.dart';
 
 void main() {
   test('only alerts raised after the app opened are announced, once each', () async {
-    final demo = DemoBackend(latency: Duration.zero, background: false);
+    final demo = FakeBackend(latency: Duration.zero, background: false);
     final store = AlertsStore(demo);
     final announced = <StatusAlert>[];
     store.onNew = announced.addAll;
@@ -33,7 +34,7 @@ void main() {
   });
 
   test('alerts after the background monitor mark are announced when the app opens', () async {
-    final demo = DemoBackend(latency: Duration.zero, background: false);
+    final demo = FakeBackend(latency: Duration.zero, background: false);
     demo.simulateAlert(); // id 100, raised while the app was closed
     final store = AlertsStore(demo)..announceAfter(6);
     final announced = <StatusAlert>[];

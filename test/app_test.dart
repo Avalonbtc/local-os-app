@@ -1,14 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:rigdeck_app/data/demo_backend.dart';
 import 'package:rigdeck_app/data/notifier.dart';
 import 'package:rigdeck_app/data/session.dart';
 import 'package:rigdeck_app/data/stores.dart';
 import 'package:rigdeck_app/main.dart';
 
-/// Walks the demo farm the way a user would: overview → machines → filter → detail → back.
+import 'support/fake_backend.dart';
+
+/// Walks a fake farm the way a user would: overview → machines → filter → detail → back.
 void main() {
-  testWidgets('demo farm: overview, machine list, filters and machine detail', (tester) async {
+  testWidgets('fake farm: overview, machine list, filters and machine detail', (tester) async {
     tester.view.physicalSize = const Size(390 * 3, 844 * 3);
     tester.view.devicePixelRatio = 3;
     addTearDown(tester.view.reset);
@@ -17,16 +18,16 @@ void main() {
     await tester.runAsync(session.restore);
     await tester.pumpWidget(RigDeckApp(session: session));
     await tester.pump();
-    expect(find.text('先看看演示数据'), findsOneWidget);
+    expect(find.widgetWithText(FilledButton, '登录'), findsOneWidget);
 
-    // Same screens and parsing as the app's demo, generated inline: the fake test clock never
+    // An in-memory controller, generated inline: the fake test clock never
     // delivers background-isolate replies.
     FleetStore.offThread = false;
-    session.startDemo(DemoBackend(latency: Duration.zero, background: false));
+    session.useBackend(FakeBackend(latency: Duration.zero, background: false));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
     await tester.pump(const Duration(milliseconds: 100));
-    expect(find.text('矿场总览 · 演示'), findsOneWidget);
+    expect(find.text('矿场总览'), findsOneWidget);
     expect(find.text('需要处理'), findsOneWidget);
 
     await tester.tap(find.text('矿机').last);
@@ -55,9 +56,11 @@ void main() {
     // Leave no timers running past the test.
     await tester.tap(find.text('更多').last);
     await tester.pumpAndSettle();
-    await tester.tap(find.text('退出演示'));
+    await tester.tap(find.text('退出登录'));
     await tester.pumpAndSettle();
-    expect(find.text('先看看演示数据'), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilledButton, '退出'));
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(FilledButton, '登录'), findsOneWidget);
   });
 
   // Small phones and large system fonts must not overflow (Flutter reports overflow as an error).
@@ -73,7 +76,7 @@ void main() {
     await tester.pumpWidget(RigDeckApp(session: session));
     await tester.pump();
     FleetStore.offThread = false;
-    session.startDemo(DemoBackend(latency: Duration.zero, background: false));
+    session.useBackend(FakeBackend(latency: Duration.zero, background: false));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
     await tester.pump(const Duration(milliseconds: 100));
@@ -97,7 +100,9 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('更多').last);
     await tester.pumpAndSettle();
-    await tester.tap(find.text('退出演示'));
+    await tester.tap(find.text('退出登录'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, '退出'));
     await tester.pumpAndSettle();
   });
 
@@ -109,13 +114,13 @@ void main() {
     await tester.runAsync(session.restore);
     await tester.pumpWidget(RigDeckApp(session: session));
     FleetStore.offThread = false;
-    session.startDemo(DemoBackend(latency: Duration.zero, background: false));
+    session.useBackend(FakeBackend(latency: Duration.zero, background: false));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
     await tester.pump(const Duration(milliseconds: 100));
 
     // What the plugin does when the user taps a notification for rig-05.
-    SystemNotifier.instance.tapped.value = DemoBackend.id(4);
+    SystemNotifier.instance.tapped.value = FakeBackend.id(4);
     await tester.pumpAndSettle();
     expect(find.widgetWithText(AppBar, 'rig-05'), findsOneWidget);
     expect(SystemNotifier.instance.tapped.value, isNull);
@@ -124,7 +129,9 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('更多').last);
     await tester.pumpAndSettle();
-    await tester.tap(find.text('退出演示'));
+    await tester.tap(find.text('退出登录'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, '退出'));
     await tester.pumpAndSettle();
   });
 }

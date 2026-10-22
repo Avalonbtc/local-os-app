@@ -127,11 +127,6 @@ class _LoginPageState extends State<LoginPage> {
                       ? const SizedBox.square(dimension: 20, child: CircularProgressIndicator(strokeWidth: 2.4, color: C.onAccent))
                       : const Text('登录'),
                 ),
-                const SizedBox(height: 8),
-                TextButton(
-                  onPressed: _busy ? null : () => widget.session.startDemo(),
-                  child: const Text('先看看演示数据'),
-                ),
               ],
             ),
           ),

@@ -61,7 +61,7 @@ class _ShellState extends State<Shell> {
       _openTapped();
       // Asked once, after sign-in, when the user can see why; the monitor's own notification
       // needs the same permission.
-      _notifier.requestPermission().then((_) => BackgroundMonitor.start(demo: widget.session.demo));
+      _notifier.requestPermission().then((_) => BackgroundMonitor.start());
     });
   }
 
@@ -95,9 +95,8 @@ class _ShellState extends State<Shell> {
   void _announce(List<StatusAlert> fresh) {
     if (!mounted) return;
     if (!_foreground) {
-      // With the background monitor running it posts these itself (the demo farm only exists in
-      // this isolate, so demo alerts always come from here).
-      if (BackgroundMonitor.running && !widget.session.demo) return;
+      // With the background monitor running it posts these itself.
+      if (BackgroundMonitor.running) return;
       // The newest few: a switch failure can take dozens of rigs down at once.
       for (final a in fresh.take(3)) {
         _notifier.show(a);

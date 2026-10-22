@@ -4,7 +4,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../api/client.dart';
-import 'demo_backend.dart';
 import 'monitor.dart';
 
 /// Who is signed in, and to which controller. Credentials live in the platform keychain /
@@ -19,7 +18,6 @@ class SessionController extends ChangeNotifier {
   Backend? backend;
   String user = '';
   String server = '';
-  bool demo = false;
   bool restoring = true;
   String lastServer = '';
 
@@ -52,13 +50,13 @@ class SessionController extends ChangeNotifier {
     await _save(await HttpBackend.withToken(s, token.trim()));
   }
 
-  void startDemo([DemoBackend? demoBackend]) {
+  /// Tests sign in to an in-memory backend.
+  @visibleForTesting
+  void useBackend(Backend b, {String user = '测试', String server = '测试'}) {
     backend?.close();
-    // `--dart-define=DEMO_MACHINES=1000` exercises a large farm.
-    backend = demoBackend ?? DemoBackend(machines: const int.fromEnvironment('DEMO_MACHINES', defaultValue: 24));
-    user = '演示';
-    server = '演示数据';
-    demo = true;
+    backend = b;
+    this.user = user;
+    this.server = server;
     notifyListeners();
   }
 
@@ -73,14 +71,13 @@ class SessionController extends ChangeNotifier {
     }
     b?.close();
     backend = null;
-    demo = false;
     notifyListeners();
     // Signed out: nothing left to monitor.
     await BackgroundMonitor.stop();
     try {
       await _storage.delete(key: _key);
     } catch (_) {
-      // Nothing stored (demo) or the keystore is unavailable: already signed out in memory.
+      // Nothing stored or the keystore is unavailable: already signed out in memory.
     }
   }
 
@@ -97,7 +94,6 @@ class SessionController extends ChangeNotifier {
     backend = HttpBackend(c, onUnauthorized: _expired);
     user = c.user;
     server = c.server;
-    demo = false;
   }
 
   void _expired() {

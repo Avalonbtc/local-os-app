@@ -61,12 +61,12 @@ class MorePage extends StatelessWidget {
           group([
             item(Icons.tune_rounded, '矿场设定与离线通知', () => push(context, const FarmSettingsPage())),
             item(Icons.key_outlined, '令牌与审计记录', () => push(context, const TokensPage())),
-            if (BackgroundMonitor.supported) _MonitorTile(demo: session.demo),
+            if (BackgroundMonitor.supported) const _MonitorTile(),
           ]),
           const SectionLabel('账户'),
           group([
-            item(Icons.logout_rounded, session.demo ? '退出演示' : '退出登录', () async {
-              if (!session.demo && !await confirm(context, '退出登录？', '退出后需要重新输入主控地址和密码（或令牌）。', action: '退出')) return;
+            item(Icons.logout_rounded, '退出登录', () async {
+              if (!await confirm(context, '退出登录？', '退出后需要重新输入主控地址和密码（或令牌）。', action: '退出')) return;
               await session.logout();
             }, color: C.badText),
           ]),
@@ -85,8 +85,7 @@ class MorePage extends StatelessWidget {
 /// Android: keep checking for alerts in the background (foreground service + persistent
 /// notification), and let the user exempt the app from battery optimisation.
 class _MonitorTile extends StatefulWidget {
-  const _MonitorTile({required this.demo});
-  final bool demo;
+  const _MonitorTile();
   @override
   State<_MonitorTile> createState() => _MonitorTileState();
 }
@@ -127,7 +126,7 @@ class _MonitorTileState extends State<_MonitorTile> {
             ? null
             : (v) async {
                 setState(() => _on = v);
-                await BackgroundMonitor.setEnabled(v, demo: widget.demo);
+                await BackgroundMonitor.setEnabled(v);
               },
       ),
       if ((on ?? false) && !_exempt)

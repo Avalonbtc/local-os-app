@@ -12,7 +12,7 @@ class ApiException implements Exception {
   String toString() => message;
 }
 
-/// How the app talks to a controller (or to the built-in demo data).
+/// How the app talks to a controller (tests use an in-memory one).
 abstract class Backend {
   /// Controller clock minus device clock, from `X-Rigdeck-Time`: freshness is judged on the
   /// controller's clock, as in the web console.

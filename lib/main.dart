@@ -40,7 +40,7 @@ class RigDeckApp extends StatelessWidget {
           }
           final backend = session.backend;
           if (backend == null) return LoginPage(session: session);
-          // A new backend (another login or demo) gets fresh stores and pages.
+          // A new backend (another login) gets fresh stores and pages.
           return Shell(key: ObjectKey(backend), session: session, backend: backend);
         },
       ),

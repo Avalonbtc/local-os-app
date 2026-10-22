@@ -19,14 +19,13 @@ import 'session.dart';
 /// credentials from the keystore; it survives the app's activity being destroyed.
 abstract final class BackgroundMonitor {
   static const _enabledKey = 'monitor.enabled';
-  static const _demoKey = 'monitor.demo';
   static const _seenKey = 'monitor.seen';
   static const interval = Duration(seconds: 30);
 
   static bool get supported => !kIsWeb && Platform.isAndroid;
 
   /// The service is up and polls the controller itself (the app then leaves background
-  /// notifications to it; in demo mode the app keeps posting them, see Shell).
+  /// notifications to it, see Shell).
   static bool running = false;
 
   static void init() {
@@ -57,17 +56,16 @@ abstract final class BackgroundMonitor {
   static Future<bool> get enabled async =>
       supported && (await FlutterForegroundTask.getData<bool>(key: _enabledKey) ?? true);
 
-  static Future<void> setEnabled(bool value, {required bool demo}) async {
+  static Future<void> setEnabled(bool value) async {
     if (!supported) return;
     await FlutterForegroundTask.saveData(key: _enabledKey, value: value);
-    value ? await start(demo: demo) : await stop();
+    value ? await start() : await stop();
   }
 
-  static Future<void> start({required bool demo}) async {
+  static Future<void> start() async {
     if (!supported || !await enabled) return;
-    await FlutterForegroundTask.saveData(key: _demoKey, value: demo);
     if (await FlutterForegroundTask.isRunningService) {
-      // A new sign-in (or demo) restarts the task so it picks up the current credentials.
+      // A new sign-in restarts the task so it picks up the current credentials.
       await FlutterForegroundTask.restartService();
     } else {
       final result = await FlutterForegroundTask.startService(
@@ -109,7 +107,6 @@ void monitorEntryPoint() {
 /// shown twice.
 class AlertMonitorTask extends TaskHandler {
   HttpBackend? _backend;
-  bool _demo = false;
   bool _busy = false;
   bool _expired = false;
   int _seen = -1;
@@ -118,19 +115,12 @@ class AlertMonitorTask extends TaskHandler {
   Future<void> onStart(DateTime timestamp, TaskStarter starter) async {
     WidgetsFlutterBinding.ensureInitialized();
     await SystemNotifier.instance.init();
-    _demo = await FlutterForegroundTask.getData<bool>(key: BackgroundMonitor._demoKey) ?? false;
     _seen = await FlutterForegroundTask.getData<int>(key: BackgroundMonitor._seenKey) ?? -1;
-    if (_demo) {
-      await _status('演示模式：由 App 生成通知');
-      return;
-    }
     await _poll();
   }
 
   @override
-  void onRepeatEvent(DateTime timestamp) {
-    if (!_demo) _poll();
-  }
+  void onRepeatEvent(DateTime timestamp) => _poll();
 
   Future<void> _poll() async {
     if (_busy) return;

@@ -8,7 +8,8 @@ RigDeck 矿场管理的手机 App，Flutter 编写，一套代码出 Android 和
 flutter pub get
 flutter run                      # 连着的手机或模拟器
 flutter run --profile            # 看真实帧率用 profile，debug 模式本身就慢
-flutter build apk --release      # Android 安装包
+# Android 安装包（约 8 MB）：只打 arm64、原生库压缩存放、Dart 代码混淆
+flutter build apk --release --target-platform android-arm64 --obfuscate --split-debug-info=build/symbols
 flutter build ipa                # iOS（需要 Mac + Xcode + Apple 开发者账号）
 ```
 
@@ -16,9 +17,14 @@ flutter build ipa                # iOS（需要 Mac + Xcode + Apple 开发者账
 
 - **账号密码**：和主控网页同一个账号，会话 12 小时，过期后回到登录页。
 - **API 令牌**：主控网页 设定 → AI / API 令牌 创建，不过期、可随时撤销，适合长期放在手机上。
-- **先看看演示数据**：不连主控，用内置的演示矿场（24 台）。`--dart-define=DEMO_MACHINES=1000` 可以模拟 1000 台。
 
 凭据存在系统钥匙串 / Keystore（flutter_secure_storage）。主控地址可以是局域网 `http://` 地址或经 VPN（Tailscale、WireGuard）访问的地址；Android 已允许明文 HTTP，iOS 允许本地网络明文。自签名 HTTPS 证书暂不支持。
+
+## 安装包大小
+
+`flutter build apk` 默认把 Flutter 引擎和 App 代码各打三份（arm64、armeabi-v7a、x86_64），约 52 MB。上面的命令只打 arm64（近几年的手机都是 arm64，x86_64 只用于模拟器），并在 `android/app/build.gradle.kts` 里让原生库压缩存放，得到约 8 MB：引擎 5.5 MB、App 代码 1.9 MB（压缩后）。`--obfuscate` 混淆 Dart 符号，`build/symbols` 里的符号文件用来还原崩溃堆栈（`flutter symbolize`），发布版本时留一份。
+
+要支持老的 32 位手机，再单独打一份：`--target-platform android-arm`。上架 Google Play 用 `flutter build appbundle`，商店会按手机只下发对应的那一份。
 
 ## 这一版有什么
 
@@ -38,7 +44,6 @@ flutter build ipa                # iOS（需要 Mac + Xcode + Apple 开发者账
 - App 在前台：新通知在底部弹出提示。在后台：系统通知（离线走高优先级渠道、恢复走普通渠道，可分别静音），点通知直接打开那台矿机。
 - **Android 后台监控**：登录后启动一个前台服务（通知栏常驻低优先级的「RigDeck 后台监控中 · 上次检查 …」），每 30 秒查一次 `/api/v1/alerts`。轮询在服务自己的 isolate 里进行，从 Keystore 读取登录凭据，**App 被划掉后照样工作**；重启手机、更新 App 后自动恢复，退出登录即停止。更多 → 设置 →「后台监控」可关闭；部分手机还需要「允许忽略电池优化」。服务类型是 `specialUse`（`dataSync` 在 Android 15+ 每天只能运行 6 小时）。
 - App 与后台服务共用「已通知到哪一条」的记录，同一条通知不会出现两次，也不会因为 App 恰好在打开而漏掉。
-- 演示模式：通知页右上角「模拟通知」，可立即或 10 秒后产生一条离线 / 恢复通知（10 秒后的那条可以先回桌面看系统通知）。
 - iOS 没有前台服务，App 关闭后要靠主控推送（APNs），还没做。
 
 2026-10-22 在 Solana Seeker（Android 16）上实测：App 从最近任务划掉后，本地测试主控里一台连不上的矿机 2 分钟后判离线，约 15 秒内通知出现在通知栏；后台服务每 30 秒检查一次，期间没有失败。
@@ -59,13 +64,13 @@ flutter build ipa                # iOS（需要 Mac + Xcode + Apple 开发者账
 ### 怎么量
 
 ```bash
-# 帧耗时：1000 台演示矿机，滚动、切换标签、进出详情页；结果在 build/scroll_1000.timeline_summary.json
+# 帧耗时：1000 台模拟矿机（测试用的内存假数据），滚动、切换标签、进出详情页；结果在 build/scroll_1000.timeline_summary.json
 flutter drive --profile --driver=test_driver/perf_driver.dart --target=integration_test/perf_test.dart -d <设备>
 ```
 
 看 `average_frame_build_time_millis`、`90th/99th_percentile_frame_rasterizer_time_millis` 和 `missed_frame_build_budget_count`：60 Hz 每帧预算 16.7 ms，120 Hz 是 8.3 ms。
 
-2026-10-22 在 Windows 桌面（profile，1000 台演示矿机，期间后台刷新照常进行）实测 190 帧：
+2026-10-22 在 Windows 桌面（profile，1000 台模拟矿机，期间后台刷新照常进行）实测 190 帧：
 
 | | 平均 | 90% | 99% | 最差 | 超出预算 |
 |---|---|---|---|---|---|
@@ -78,7 +83,7 @@ flutter drive --profile --driver=test_driver/perf_driver.dart --target=integrati
 
 ```bash
 flutter analyze
-flutter test        # 数据计算（含 1000 台）、格式化、演示矿场完整走查、320pt 小屏 + 130% 字号不溢出
+flutter test        # 数据计算（含 1000 台）、格式化、模拟矿场完整走查、320pt 小屏 + 130% 字号不溢出
 ```
 
 ## 目录
@@ -91,8 +96,7 @@ lib/
   api/models.dart        数据模型与纯函数（buildFleet、buildHistory），可在后台 isolate 运行
   data/session.dart      登录、退出、凭据保存
   data/stores.dart       矿场与通知的定时刷新
-  data/demo_backend.dart 演示矿场（与真实 API 同样的路径和 JSON）
   ui/                    各页面
-test/                    单元测试与界面测试
+test/                    单元测试与界面测试；support/fake_backend.dart 是只在测试里用的内存主控
 integration_test/        帧耗时测试
 ```

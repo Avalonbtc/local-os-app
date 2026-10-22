@@ -17,7 +17,7 @@ class OverviewPage extends StatelessWidget {
     final fleet = scope.fleet;
     return Scaffold(
       appBar: AppBar(
-        title: Text(scope.session.demo ? '矿场总览 · 演示' : '矿场总览'),
+        title: const Text('矿场总览'),
         actions: [
           IconButton(tooltip: '刷新', onPressed: fleet.refresh, icon: const Icon(Icons.refresh_rounded)),
           IconButton(

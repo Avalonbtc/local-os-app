@@ -1,9 +1,6 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 
 import '../api/models.dart';
-import '../data/demo_backend.dart';
 import '../theme.dart';
 import '../util/format.dart';
 import 'more_page.dart';
@@ -26,8 +23,6 @@ class _AlertsPageState extends State<AlertsPage> {
       appBar: AppBar(
         title: const Text('通知'),
         actions: [
-          if (AppScope.of(context).backend is DemoBackend)
-            TextButton(onPressed: () => _simulate(context), child: const Text('模拟通知')),
           IconButton(
             tooltip: '通知设置',
             onPressed: () => push(context, const FarmSettingsPage()),
@@ -99,48 +94,6 @@ class _AlertsPageState extends State<AlertsPage> {
         },
       ),
     );
-  }
-}
-
-/// Demo farms never change on their own; this raises an alert now or after a delay (long enough
-/// to send the app to the background and see the system notification).
-Future<void> _simulate(BuildContext context) async {
-  final scope = AppScope.of(context);
-  final demo = scope.backend as DemoBackend;
-  final alerts = scope.alerts;
-  final delay = await showModalBottomSheet<int>(
-    context: context,
-    builder: (ctx) => SafeArea(
-      child: Column(mainAxisSize: MainAxisSize.min, children: [
-        const Padding(
-          padding: EdgeInsets.fromLTRB(20, 0, 20, 8),
-          child: Text('模拟一条离线 / 恢复通知', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-        ),
-        ListTile(
-          leading: const Icon(Icons.notifications_active_outlined, color: C.rate),
-          title: const Text('立即'),
-          subtitle: const Text('App 在前台：底部弹出提示', style: TextStyle(fontSize: 12, color: C.muted)),
-          onTap: () => Navigator.pop(ctx, 0),
-        ),
-        ListTile(
-          leading: const Icon(Icons.timer_outlined, color: C.rate),
-          title: const Text('10 秒后'),
-          subtitle: const Text('选完按 Home 键回到桌面，等系统通知', style: TextStyle(fontSize: 12, color: C.muted)),
-          onTap: () => Navigator.pop(ctx, 10),
-        ),
-      ]),
-    ),
-  );
-  if (delay == null) return;
-  void fire() {
-    demo.simulateAlert();
-    alerts.refresh();
-  }
-  if (delay == 0) {
-    fire();
-  } else {
-    Timer(Duration(seconds: delay), fire);
-    if (context.mounted) toast(context, '$delay 秒后会产生一条通知，现在可以切到后台');
   }
 }
 

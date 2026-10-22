@@ -2,13 +2,13 @@ import 'dart:convert';
 import 'dart:isolate';
 import 'dart:math';
 
-import '../api/client.dart';
+import 'package:rigdeck_app/api/client.dart';
 
-/// A controller in memory: same paths and JSON shapes as RigDeck's REST API, so the app's
-/// parsing and screens run unchanged without a farm. Large bodies are generated on a
-/// background isolate, like real network data would arrive off the UI thread.
-class DemoBackend extends Backend {
-  DemoBackend({this.machines = 24, this.latency = const Duration(milliseconds: 120), this.background = true});
+/// Test-only controller in memory: same paths and JSON shapes as RigDeck's REST API, so the
+/// app's parsing and screens run unchanged in unit, widget and frame-timing tests. Large bodies
+/// can be generated on a background isolate, like real network data arriving off the UI thread.
+class FakeBackend extends Backend {
+  FakeBackend({this.machines = 24, this.latency = const Duration(milliseconds: 120), this.background = true});
 
   final int machines;
   final Duration latency;
@@ -19,8 +19,7 @@ class DemoBackend extends Backend {
   final _jobs = <Map<String, dynamic>>[];
   final _simulated = <Map<String, dynamic>>[];
 
-  /// Demo only: raise a new alert, alternating rig-05 going offline and recovering, so the app's
-  /// in-app banner and system notifications can be tried without a farm.
+  /// Raise a new alert, alternating rig-05 going offline and recovering.
   void simulateAlert() {
     final offline = _simulated.length.isEven;
     final rig = name(4);
@@ -31,7 +30,7 @@ class DemoBackend extends Backend {
       'kind': 'local',
       'event': offline ? 'offline' : 'recovered',
       'at': DateTime.now().toUtc().toIso8601String(),
-      'message': offline ? '$rig 已离线：2 分钟没有收到遥测数据（主动上报和 SSH 读取都没有结果）（模拟）' : '$rig 已恢复在线（离线约 1 分钟）（模拟）',
+      'message': offline ? '$rig 已离线：2 分钟没有收到遥测数据（主动上报和 SSH 读取都没有结果）' : '$rig 已恢复在线（离线约 1 分钟）',
     });
   }
   Map<String, dynamic> _settings = {
@@ -66,7 +65,7 @@ class DemoBackend extends Backend {
     if (method == 'GET') {
       switch (seg) {
         case ['me']:
-          return jsonEncode({'actor': {'name': '演示'}, 'csrf': ''});
+          return jsonEncode({'actor': {'name': '测试'}, 'csrf': ''});
         case ['machines']:
           return background ? _bgMachines(count) : _machines(count);
         case ['telemetry']:
@@ -142,7 +141,7 @@ class DemoBackend extends Backend {
           return jsonEncode(_settings);
       }
     }
-    throw ApiException(404, '演示数据里没有 $method $path');
+    throw ApiException(404, '测试数据里没有 $method $path');
   }
 
   int _index(String machineId) => int.tryParse(machineId.split('-').last) ?? 0;
@@ -183,7 +182,7 @@ class DemoBackend extends Backend {
       'action': input['action'],
       'status': status,
       'created_at': DateTime.fromMillisecondsSinceEpoch(j['created'] as int).toUtc().toIso8601String(),
-      'actor': '演示',
+      'actor': '测试',
       'targets': targets,
     };
   }
@@ -229,10 +228,10 @@ class DemoBackend extends Backend {
   String _audit(int now) {
     String at(int minutes) => DateTime.fromMillisecondsSinceEpoch(now - minutes * 60000).toUtc().toIso8601String();
     return jsonEncode([
-      {'id': 4, 'actor': '演示', 'action': 'job.create', 'target': '4 台矿机', 'detail': {}, 'created_at': at(6)},
-      {'id': 3, 'actor': '演示', 'action': 'settings.farm', 'target': 'farm', 'detail': {}, 'created_at': at(37)},
-      {'id': 2, 'actor': '演示', 'action': 'terminal.open', 'target': name(6), 'detail': {}, 'created_at': at(81)},
-      {'id': 1, 'actor': '演示', 'action': 'login', 'target': 'app', 'detail': {}, 'created_at': at(300)},
+      {'id': 4, 'actor': '测试', 'action': 'job.create', 'target': '4 台矿机', 'detail': {}, 'created_at': at(6)},
+      {'id': 3, 'actor': '测试', 'action': 'settings.farm', 'target': 'farm', 'detail': {}, 'created_at': at(37)},
+      {'id': 2, 'actor': '测试', 'action': 'terminal.open', 'target': name(6), 'detail': {}, 'created_at': at(81)},
+      {'id': 1, 'actor': '测试', 'action': 'login', 'target': 'app', 'detail': {}, 'created_at': at(300)},
     ]);
   }
 
@@ -279,8 +278,8 @@ Future<String> _bgHistory(int index, String kind, int hours, int now) =>
 String _machines(int count) => jsonEncode([
       for (var i = 0; i < count; i++)
         {
-          'id': DemoBackend.id(i),
-          'name': DemoBackend.name(i),
+          'id': FakeBackend.id(i),
+          'name': FakeBackend.name(i),
           'host': '192.168.1.${21 + i % 220}',
           'port': 22,
           'username': 'root',
@@ -301,7 +300,7 @@ String _telemetry(int count, int now, String? only) {
   final at = DateTime.fromMillisecondsSinceEpoch(now - 4000).toUtc().toIso8601String();
   final sec = now / 1000;
   for (var i = 0; i < count; i++) {
-    final mid = DemoBackend.id(i);
+    final mid = FakeBackend.id(i);
     if (only != null && only != mid) continue;
     final r = Random(i * 7919 + now ~/ 10000);
     if (_off(i)) {
@@ -378,7 +377,7 @@ String _status(int count, int now, int started) {
   return jsonEncode([
     for (var i = 0; i < count; i++)
       {
-        'machine_id': DemoBackend.id(i),
+        'machine_id': FakeBackend.id(i),
         'state': _off(i) ? 'local_offline' : (i == 6 ? 'pool_offline' : 'online'),
         'local': _off(i) ? 'offline' : 'online',
         'last_seen_at': iso(_off(i) ? now - 300000 : now - 4000),

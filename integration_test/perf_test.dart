@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
-import 'package:rigdeck_app/data/demo_backend.dart';
 import 'package:rigdeck_app/data/session.dart';
 import 'package:rigdeck_app/main.dart';
+
+import '../test/support/fake_backend.dart';
 
 /// Frame timing on a real engine (profile mode):
 /// `flutter drive --profile --driver=test_driver/perf_driver.dart --target=integration_test/perf_test.dart -d <device>`
@@ -17,7 +18,7 @@ void main() {
     final session = SessionController();
     await tester.pumpWidget(RigDeckApp(session: session));
     await session.restore();
-    session.startDemo(DemoBackend(machines: 1000));
+    session.useBackend(FakeBackend(machines: 1000));
     // Real clock: wait for the first refresh (data built on a background isolate).
     for (var i = 0; i < 50 && find.text('需要处理').evaluate().isEmpty; i++) {
       await tester.pump(const Duration(milliseconds: 200));

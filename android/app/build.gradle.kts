@@ -31,6 +31,14 @@ android {
         versionName = flutter.versionName
     }
 
+    // Native libraries (the Flutter engine, the app's compiled Dart) are stored compressed in
+    // the APK: a far smaller download to sideload. Android extracts them once at install.
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
+
     buildTypes {
         release {
             // TODO: Add your own signing config for the release build.
