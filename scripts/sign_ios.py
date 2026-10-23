@@ -7,6 +7,7 @@ from pathlib import Path
 import plistlib
 import re
 import secrets
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -60,12 +61,14 @@ def main():
         entitlement_path.write_bytes(plistlib.dumps(entitlements))
         shutil.copy2(profile_path, app / 'embedded.mobileprovision')
         password = secrets.token_urlsafe(32)
+        previous_keychains = shlex.split(run('security', 'list-keychains', '-d', 'user', capture_output=True).stdout.decode())
         created = False
         try:
             run('security', 'create-keychain', '-p', password, str(keychain), capture_output=True)
             created = True
             run('security', 'set-keychain-settings', '-lut', '3600', str(keychain), capture_output=True)
             run('security', 'unlock-keychain', '-p', password, str(keychain), capture_output=True)
+            run('security', 'list-keychains', '-d', 'user', '-s', str(keychain), *previous_keychains, capture_output=True)
             run('security', 'import', str(p12), '-P', os.environ['IOS_P12_PASSWORD'], '-A', '-t', 'cert', '-f', 'pkcs12', '-k', str(keychain), capture_output=True)
             run('security', 'set-key-partition-list', '-S', 'apple-tool:,apple:,codesign:', '-s', '-k', password, str(keychain), capture_output=True)
             identities = run('security', 'find-identity', '-v', '-p', 'codesigning', str(keychain), capture_output=True).stdout.decode()
@@ -91,6 +94,7 @@ def main():
             print(f'IPA SHA256: {checksum}')
         finally:
             if created:
+                run('security', 'list-keychains', '-d', 'user', '-s', *previous_keychains, capture_output=True)
                 run('security', 'delete-keychain', str(keychain), capture_output=True)
 
 
