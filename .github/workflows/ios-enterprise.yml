@@ -1,0 +1,52 @@
+name: iOS enterprise build
+
+on:
+  push:
+    branches: [codex/ios-enterprise-build]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-enterprise-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install matching Flutter SDK
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: flutter/flutter
+          ref: abaf9c523780a608bd46686fd5e53740a07077f8
+          path: .flutter-sdk
+          persist-credentials: false
+      - name: Build iOS release
+        run: |
+          export PATH="$GITHUB_WORKSPACE/.flutter-sdk/bin:$PATH"
+          flutter --version
+          xcodebuild -version
+          flutter pub get --enforce-lockfile
+          flutter build ios --release --no-codesign --build-number "$GITHUB_RUN_NUMBER"
+      - name: Sign and encrypt IPA
+        env:
+          IOS_P12_BASE64: ${{ secrets.RIGDECK_IOS_P12_BASE64 }}
+          IOS_P12_PASSWORD: ${{ secrets.RIGDECK_IOS_P12_PASSWORD }}
+          IOS_PROFILE_BASE64: ${{ secrets.RIGDECK_IOS_PROFILE_BASE64 }}
+          IPA_ENCRYPTION_PASSWORD: ${{ secrets.RIGDECK_IPA_ENCRYPTION_PASSWORD }}
+        run: python3 scripts/sign_ios.py
+      - name: Upload encrypted IPA
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: RigDeck-iOS-encrypted-${{ github.run_number }}
+          path: |
+            build/ios-delivery/RigDeck.ipa.enc
+            build/ios-delivery/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 3
