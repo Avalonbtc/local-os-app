@@ -30,6 +30,7 @@ jobs:
       - name: Build iOS release
         run: |
           export PATH="$GITHUB_WORKSPACE/.flutter-sdk/bin:$PATH"
+          git -C .flutter-sdk fetch --depth=1 origin tag 3.47.7
           flutter --version
           xcodebuild -version
           flutter pub get --enforce-lockfile
